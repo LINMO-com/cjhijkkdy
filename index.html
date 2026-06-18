@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>文档管理与分享系统 · 入口</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* ============================================================
+         全局样式 - 与系统设计语言保持一致
+         深空蓝背景 + 青柠绿强调色
+         ============================================================ */
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      :root {
+        --space-900: #0b1220;
+        --space-800: #0f172a;
+        --space-700: #1e293b;
+        --space-600: #334155;
+        --lime-400: #a3e635;
+        --lime-500: #84cc16;
+        --slate-200: #e2e8f0;
+        --slate-400: #94a3b8;
+        --slate-500: #64748b;
+      }
+
+      html,
+      body {
+        min-height: 100vh;
+        font-family: 'IBM Plex Sans', system-ui, sans-serif;
+        background: var(--space-900);
+        color: var(--slate-200);
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+
+      /* 背景光晕装饰 */
+      .bg-decoration {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        overflow: hidden;
+      }
+      .bg-decoration::before,
+      .bg-decoration::after {
+        content: '';
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(80px);
+        opacity: 0.4;
+        animation: float 12s ease-in-out infinite;
+      }
+      .bg-decoration::before {
+        width: 480px;
+        height: 480px;
+        background: radial-gradient(circle, rgba(163, 230, 53, 0.25), transparent 70%);
+        top: -120px;
+        left: -80px;
+      }
+      .bg-decoration::after {
+        width: 520px;
+        height: 520px;
+        background: radial-gradient(circle, rgba(56, 189, 248, 0.2), transparent 70%);
+        bottom: -160px;
+        right: -100px;
+        animation-delay: -6s;
+      }
+
+      @keyframes float {
+        0%,
+        100% {
+          transform: translate(0, 0) scale(1);
+        }
+        50% {
+          transform: translate(30px, -20px) scale(1.05);
+        }
+      }
+
+      /* 网格纹理叠加 */
+      .grid-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        background-image: linear-gradient(rgba(148, 163, 184, 0.04) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px);
+        background-size: 48px 48px;
+        mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+      }
+
+      .container {
+        position: relative;
+        z-index: 1;
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 0 24px;
+      }
+
+      /* ============================================================
+         顶部品牌栏
+         ============================================================ */
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 24px 0;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .brand-logo {
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        background: var(--lime-400);
+        color: var(--space-900);
+        font-family: 'Space Grotesk', sans-serif;
+        font-weight: 700;
+        font-size: 18px;
+        box-shadow: 0 8px 24px rgba(163, 230, 53, 0.25);
+      }
+      .brand-text {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--slate-200);
+      }
+      .brand-text small {
+        display: block;
+        font-size: 11px;
+        font-weight: 400;
+        color: var(--slate-500);
+        margin-top: 2px;
+      }
+      .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: rgba(163, 230, 53, 0.1);
+        border: 1px solid rgba(163, 230, 53, 0.3);
+        font-size: 12px;
+        color: var(--lime-400);
+      }
+      .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--lime-400);
+        box-shadow: 0 0 8px var(--lime-400);
+        animation: pulse 2s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
+      }
+
+      /* ============================================================
+         Hero 区
+         ============================================================ */
+      .hero {
+        text-align: center;
+        padding: 80px 0 60px;
+        animation: fadeUp 0.8s ease-out;
+      }
+      .hero-eyebrow {
+        display: inline-block;
+        padding: 6px 14px;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.08);
+        border: 1px solid rgba(148, 163, 184, 0.15);
+        font-size: 12px;
+        color: var(--slate-400);
+        margin-bottom: 24px;
+        letter-spacing: 0.5px;
+      }
+      .hero h1 {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: clamp(36px, 6vw, 64px);
+        font-weight: 700;
+        line-height: 1.05;
+        letter-spacing: -0.02em;
+        color: #f8fafc;
+        margin-bottom: 20px;
+      }
+      .hero h1 .accent {
+        color: var(--lime-400);
+        position: relative;
+        display: inline-block;
+      }
+      .hero h1 .accent::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 4px;
+        height: 8px;
+        background: rgba(163, 230, 53, 0.2);
+        z-index: -1;
+        border-radius: 4px;
+      }
+      .hero p {
+        max-width: 580px;
+        margin: 0 auto;
+        font-size: 16px;
+        line-height: 1.7;
+        color: var(--slate-400);
+      }
+
+      @keyframes fadeUp {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      /* ============================================================
+         入口卡片
+         ============================================================ */
+      .entries {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 24px;
+        margin-top: 56px;
+      }
+      .entry-card {
+        position: relative;
+        display: block;
+        padding: 36px 32px;
+        border-radius: 20px;
+        background: linear-gradient(160deg, rgba(30, 41, 59, 0.6), rgba(15, 23, 42, 0.4));
+        border: 1px solid rgba(51, 65, 85, 0.6);
+        text-decoration: none;
+        color: inherit;
+        overflow: hidden;
+        transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        backdrop-filter: blur(12px);
+        animation: fadeUp 0.8s ease-out backwards;
+      }
+      .entry-card:nth-child(1) {
+        animation-delay: 0.1s;
+      }
+      .entry-card:nth-child(2) {
+        animation-delay: 0.2s;
+      }
+      .entry-card::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(
+          circle at top right,
+          rgba(163, 230, 53, 0.08),
+          transparent 60%
+        );
+        opacity: 0;
+        transition: opacity 0.35s;
+      }
+      .entry-card:hover {
+        transform: translateY(-6px);
+        border-color: rgba(163, 230, 53, 0.4);
+        box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.5),
+          0 0 0 1px rgba(163, 230, 53, 0.1);
+      }
+      .entry-card:hover::before {
+        opacity: 1;
+      }
+      .entry-card.admin:hover {
+        border-color: rgba(56, 189, 248, 0.4);
+      }
+      .entry-card.admin::before {
+        background: radial-gradient(
+          circle at top right,
+          rgba(56, 189, 248, 0.08),
+          transparent 60%
+        );
+      }
+
+      .card-icon {
+        width: 56px;
+        height: 56px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 14px;
+        margin-bottom: 24px;
+        background: rgba(163, 230, 53, 0.12);
+        color: var(--lime-400);
+        transition: transform 0.35s;
+      }
+      .entry-card:hover .card-icon {
+        transform: scale(1.08) rotate(-4deg);
+      }
+      .entry-card.admin .card-icon {
+        background: rgba(56, 189, 248, 0.12);
+        color: #38bdf8;
+      }
+      .card-icon svg {
+        width: 28px;
+        height: 28px;
+      }
+
+      .card-label {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: var(--slate-500);
+        margin-bottom: 8px;
+      }
+      .card-title {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 24px;
+        font-weight: 600;
+        color: #f8fafc;
+        margin-bottom: 10px;
+      }
+      .card-desc {
+        font-size: 14px;
+        line-height: 1.6;
+        color: var(--slate-400);
+        margin-bottom: 24px;
+      }
+      .card-cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--lime-400);
+        transition: gap 0.25s;
+      }
+      .entry-card.admin .card-cta {
+        color: #38bdf8;
+      }
+      .entry-card:hover .card-cta {
+        gap: 12px;
+      }
+      .card-cta svg {
+        width: 16px;
+        height: 16px;
+        transition: transform 0.25s;
+      }
+      .entry-card:hover .card-cta svg {
+        transform: translateX(2px);
+      }
+
+      .card-features {
+        list-style: none;
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid rgba(51, 65, 85, 0.5);
+      }
+      .card-features li {
+        font-size: 12px;
+        color: var(--slate-500);
+        padding: 4px 0;
+        padding-left: 18px;
+        position: relative;
+      }
+      .card-features li::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 10px;
+        width: 8px;
+        height: 1px;
+        background: var(--lime-400);
+      }
+      .entry-card.admin .card-features li::before {
+        background: #38bdf8;
+      }
+
+      /* ============================================================
+         快速启动说明
+         ============================================================ */
+      .quickstart {
+        margin-top: 80px;
+        padding: 36px;
+        border-radius: 20px;
+        background: rgba(15, 23, 42, 0.5);
+        border: 1px solid rgba(51, 65, 85, 0.5);
+        backdrop-filter: blur(12px);
+        animation: fadeUp 0.8s ease-out 0.3s backwards;
+      }
+      .quickstart h2 {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--slate-200);
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .quickstart h2::before {
+        content: '';
+        width: 4px;
+        height: 18px;
+        background: var(--lime-400);
+        border-radius: 2px;
+      }
+      .steps {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 20px;
+      }
+      .step {
+        padding: 16px;
+        border-radius: 12px;
+        background: rgba(11, 18, 32, 0.6);
+        border: 1px solid rgba(51, 65, 85, 0.4);
+      }
+      .step-num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        background: rgba(163, 230, 53, 0.12);
+        color: var(--lime-400);
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 12px;
+        font-weight: 700;
+        margin-bottom: 10px;
+      }
+      .step-title {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--slate-200);
+        margin-bottom: 8px;
+      }
+      .step code {
+        display: block;
+        font-family: 'JetBrains Mono', 'Fira Code', monospace;
+        font-size: 12px;
+        color: var(--lime-400);
+        background: rgba(11, 18, 32, 0.8);
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(51, 65, 85, 0.4);
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+
+      /* ============================================================
+         底部
+         ============================================================ */
+      footer {
+        text-align: center;
+        padding: 60px 0 40px;
+        font-size: 12px;
+        color: var(--slate-500);
+        border-top: 1px solid rgba(51, 65, 85, 0.3);
+        margin-top: 60px;
+      }
+      footer a {
+        color: var(--slate-400);
+        text-decoration: none;
+        transition: color 0.2s;
+      }
+      footer a:hover {
+        color: var(--lime-400);
+      }
+
+      /* ============================================================
+         响应式
+         ============================================================ */
+      @media (max-width: 640px) {
+        .hero {
+          padding: 48px 0 40px;
+        }
+        .entries {
+          margin-top: 32px;
+        }
+        .quickstart {
+          margin-top: 48px;
+          padding: 24px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="bg-decoration"></div>
+    <div class="grid-overlay"></div>
+
+    <div class="container">
+      <!-- 顶部品牌栏 -->
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-logo">D</div>
+          <div class="brand-text">
+            文档管理与分享系统
+            <small>Enterprise Document Platform</small>
+          </div>
+        </div>
+        <div class="status-badge">
+          <span class="status-dot"></span>
+          系统就绪
+        </div>
+      </header>
+
+      <!-- Hero 区 -->
+      <section class="hero">
+        <span class="hero-eyebrow">UNIFIED ENTRY · 统一入口</span>
+        <h1>
+          多模态文档<span class="accent">·</span><br />
+          安全分享平台
+        </h1>
+        <p>
+          企业级文档统一存储、元数据治理与限时安全分享。基于 HMAC-SHA256 签名的动态下载策略，普通文件 15 分钟、大文件 30 分钟有效，过期即失效。
+        </p>
+
+        <!-- 两个入口卡片 -->
+        <div class="entries">
+          <!-- 公开网页前端 -->
+          <a class="entry-card" href="http://localhost:5173/" target="_blank" rel="noopener">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+              </svg>
+            </div>
+            <div class="card-label">PUBLIC WEB</div>
+            <div class="card-title">网页前端</div>
+            <div class="card-desc">面向访客的公开文档浏览界面，支持卡片墙展示、格式图标、在线预览与限时下载。</div>
+            <div class="card-cta">
+              进入前端
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12" />
+                <polyline points="12 5 19 12 12 19" />
+              </svg>
+            </div>
+            <ul class="card-features">
+              <li>文档卡片墙与格式筛选</li>
+              <li>TXT / Markdown / JSON 在线预览</li>
+              <li>图片灯箱预览</li>
+              <li>分享链接限时下载</li>
+            </ul>
+          </a>
+
+          <!-- 管理后台前端 -->
+          <a class="entry-card admin" href="http://localhost:5173/admin/login" target="_blank" rel="noopener">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="7" height="9" />
+                <rect x="14" y="3" width="7" height="5" />
+                <rect x="14" y="12" width="7" height="9" />
+                <rect x="3" y="16" width="7" height="5" />
+              </svg>
+            </div>
+            <div class="card-label">ADMIN DASHBOARD</div>
+            <div class="card-title">管理后台</div>
+            <div class="card-desc">管理员专属控制台，支持文件上传、元数据编辑、重命名、生成分享链接等完整管理功能。</div>
+            <div class="card-cta">
+              进入后台
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12" />
+                <polyline points="12 5 19 12 12 19" />
+              </svg>
+            </div>
+            <ul class="card-features">
+              <li>拖拽多文件上传</li>
+              <li>元数据在线编辑</li>
+              <li>同名冲突检测重命名</li>
+              <li>一键生成安全分享链接</li>
+            </ul>
+          </a>
+        </div>
+      </section>
+
+      <!-- 快速启动说明 -->
+      <section class="quickstart">
+        <h2>快速启动 / Quick Start</h2>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-title">初始化数据库</div>
+            <code>mysql -u root -p &lt; database/schema.sql</code>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-title">启动后端服务 (端口 3000)</div>
+            <code>cd server &amp;&amp; cp .env.example .env &amp;&amp; npm install &amp;&amp; npm run dev</code>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-title">启动前端服务 (端口 5173)</div>
+            <code>cd web &amp;&amp; npm install &amp;&amp; npm run dev</code>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-title">点击上方卡片进入系统</div>
+            <code>默认账号: admin / admin123</code>
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        <p>
+          企业级多模态文档管理与分享系统 ·
+          <a href="https://github.com/LINMO-com/cjhijkkdy" target="_blank" rel="noopener">GitHub 仓库</a>
+          · 基于 Express + TypeScript + Vue3 + MySQL
+        </p>
+      </footer>
+    </div>
+  </body>
+</html>
