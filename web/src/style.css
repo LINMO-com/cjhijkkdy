@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+   全局样式
+   ============================================================================ */
+@layer base {
+  html {
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    @apply bg-space-900 text-slate-200 antialiased;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+  }
+
+  /* 自定义滚动条 */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-space-800;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-space-600 rounded;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-500;
+  }
+}
+
+@layer components {
+  /* 主按钮：青柠绿实色 */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-lime-400 px-4 py-2 text-sm font-medium text-space-900 transition hover:bg-lime-500 focus:outline-none focus:ring-2 focus:ring-lime-400/50 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  /* 次按钮：描边 */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-space-600 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-space-700 focus:outline-none focus:ring-2 focus:ring-space-600;
+  }
+
+  /* 危险按钮 */
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-red-500/40 px-4 py-2 text-sm font-medium text-red-400 transition hover:bg-red-500/10;
+  }
+
+  /* 输入框 */
+  .input-field {
+    @apply w-full rounded-lg border border-space-600 bg-space-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 transition focus:border-lime-400 focus:outline-none focus:ring-1 focus:ring-lime-400;
+  }
+
+  /* 卡片 */
+  .card {
+    @apply rounded-xl border border-space-600 bg-space-700/60 backdrop-blur;
+  }
+}
