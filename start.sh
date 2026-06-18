@@ -66,37 +66,207 @@ cleanup() {
 trap cleanup INT TERM
 
 # ============================================================================
-# 步骤 1：环境检查
+# 步骤 1：环境检查与自动安装
 # ============================================================================
-step "步骤 1/6 · 环境检查"
+step "步骤 1/6 · 环境检查与自动安装"
+
+# ----------------------------------------------------------------------------
+# 操作系统检测
+# ----------------------------------------------------------------------------
+OS_TYPE="unknown"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  OS_TYPE="macos"
+elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+  if [ -f /etc/debian_version ]; then
+    OS_TYPE="debian"
+  elif [ -f /etc/redhat-release ] || [ -f /etc/centos-release ]; then
+    OS_TYPE="rhel"
+  elif [ -f /etc/alpine-release ]; then
+    OS_TYPE="alpine"
+  else
+    OS_TYPE="linux"
+  fi
+fi
+info "检测到操作系统: $OS_TYPE"
+
+# ----------------------------------------------------------------------------
+# 检测是否有 sudo 权限（用于安装系统级软件）
+# ----------------------------------------------------------------------------
+HAS_SUDO=false
+if [ "$EUID" -eq 0 ]; then
+  HAS_SUDO=true
+elif sudo -n true 2>/dev/null; then
+  HAS_SUDO=true
+fi
+
+# ----------------------------------------------------------------------------
+# 工具函数：检测命令是否存在
+# ----------------------------------------------------------------------------
+has_cmd() { command -v "$1" &> /dev/null; }
+
+# ----------------------------------------------------------------------------
+# 安装 Node.js 18 LTS（如未安装或版本过低）
+# ----------------------------------------------------------------------------
+install_nodejs() {
+  info "开始自动安装 Node.js 20 LTS ..."
+  case "$OS_TYPE" in
+    debian)
+      if [ "$HAS_SUDO" = true ]; then
+        info "使用 NodeSource 仓库安装 (Debian/Ubuntu)..."
+        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - 2>&1 | tail -3
+        sudo -E apt-get install -y nodejs 2>&1 | tail -3
+      else
+        err "需要 sudo 权限安装 Node.js，请手动运行: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs"
+        exit 1
+      fi
+      ;;
+    rhel)
+      if [ "$HAS_SUDO" = true ]; then
+        info "使用 NodeSource 仓库安装 (RHEL/CentOS)..."
+        curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo -E bash - 2>&1 | tail -3
+        sudo -E yum install -y nodejs 2>&1 | tail -3
+      else
+        err "需要 sudo 权限安装 Node.js，请手动运行: curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash - && sudo yum install -y nodejs"
+        exit 1
+      fi
+      ;;
+    alpine)
+      if [ "$HAS_SUDO" = true ]; then
+        info "使用 apk 安装 (Alpine)..."
+        sudo apk add --no-cache nodejs npm 2>&1 | tail -3
+      else
+        err "需要 root 权限，请手动运行: apk add --no-cache nodejs npm"
+        exit 1
+      fi
+      ;;
+    macos)
+      if has_cmd brew; then
+        info "使用 Homebrew 安装..."
+        brew install node@20 2>&1 | tail -3
+        brew link node@20 --force --overwrite 2>&1 | tail -2 || true
+      else
+        info "未检测到 Homebrew，先安装 Homebrew..."
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" 2>&1 | tail -3
+        # 重新加载 PATH
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+          eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null)"
+        fi
+        brew install node@20 2>&1 | tail -3
+        brew link node@20 --force --overwrite 2>&1 | tail -2 || true
+      fi
+      ;;
+    *)
+      err "不支持的操作系统 $OS_TYPE，请手动安装 Node.js 18+: https://nodejs.org/"
+      exit 1
+      ;;
+  esac
+
+  # 刷新当前 shell 的 PATH（NodeSource 安装后可能需要）
+  hash -r 2>/dev/null || true
+  export PATH="/usr/local/bin:/usr/bin:/opt/homebrew/bin:/usr/local/opt/node@20/bin:$PATH"
+
+  # 验证安装
+  if ! has_cmd node; then
+    err "Node.js 安装失败，请手动安装: https://nodejs.org/"
+    exit 1
+  fi
+  log "Node.js 安装成功: $(node -v)"
+}
 
 # 检查 Node.js
-if ! command -v node &> /dev/null; then
-  err "未检测到 Node.js，请先安装 Node.js 18+ (https://nodejs.org/)"
-  exit 1
+NEED_INSTALL_NODE=false
+if ! has_cmd node; then
+  warn "未检测到 Node.js"
+  NEED_INSTALL_NODE=true
+else
+  NODE_VERSION=$(node -v | sed 's/v//')
+  NODE_MAJOR=$(echo "$NODE_VERSION" | cut -d. -f1)
+  if [ "$NODE_MAJOR" -lt 18 ]; then
+    warn "Node.js 版本过低（当前 $NODE_VERSION，需要 18+）"
+    NEED_INSTALL_NODE=true
+  fi
 fi
+
+if [ "$NEED_INSTALL_NODE" = true ]; then
+  install_nodejs
+else
+  log "Node.js: $(node -v)"
+fi
+
+# 重新读取版本（安装后）
 NODE_VERSION=$(node -v | sed 's/v//')
 NODE_MAJOR=$(echo "$NODE_VERSION" | cut -d. -f1)
-if [ "$NODE_MAJOR" -lt 18 ]; then
-  err "Node.js 版本过低（当前 $NODE_VERSION），需要 18+"
-  exit 1
-fi
-log "Node.js: $NODE_VERSION"
 
-# 检查 npm
-if ! command -v npm &> /dev/null; then
-  err "未检测到 npm，请随 Node.js 一并安装"
+# 检查 npm（通常随 Node.js 一起安装）
+if ! has_cmd npm; then
+  err "Node.js 已安装但未找到 npm，请重新安装 Node.js"
   exit 1
 fi
 log "npm: $(npm -v)"
 
-# 检查 mysql 客户端（可选，仅用于初始化数据库）
+# ----------------------------------------------------------------------------
+# 安装 mysql 客户端（可选，仅用于自动初始化数据库）
+# ----------------------------------------------------------------------------
+install_mysql_client() {
+  info "开始自动安装 MySQL 客户端 ..."
+  case "$OS_TYPE" in
+    debian)
+      [ "$HAS_SUDO" = true ] && sudo -E apt-get install -y mysql-client 2>&1 | tail -3
+      ;;
+    rhel)
+      [ "$HAS_SUDO" = true ] && sudo -E yum install -y mysql 2>&1 | tail -3
+      ;;
+    alpine)
+      [ "$HAS_SUDO" = true ] && sudo apk add --no-cache mysql-client 2>&1 | tail -3
+      ;;
+    macos)
+      if has_cmd brew; then
+        brew install mysql-client 2>&1 | tail -3
+        # 提示加入 PATH
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+          export PATH="/opt/homebrew/opt/mysql-client/bin:/usr/local/opt/mysql-client/bin:$PATH"
+        fi
+      fi
+      ;;
+  esac
+  hash -r 2>/dev/null || true
+}
+
 MYSQL_AVAILABLE=false
-if command -v mysql &> /dev/null; then
+if has_cmd mysql; then
   MYSQL_AVAILABLE=true
   log "mysql 客户端: $(mysql --version)"
 else
-  warn "未检测到 mysql 客户端（跳过数据库自动初始化，请手动执行 schema.sql）"
+  warn "未检测到 mysql 客户端"
+  if [ "$HAS_SUDO" = true ] || [ "$OS_TYPE" = "macos" ]; then
+    read -rp "$(echo -e ${YELLOW}"是否自动安装 mysql 客户端？[Y/n]: "${NC})" INSTALL_MYSQL
+    INSTALL_MYSQL=${INSTALL_MYSQL:-Y}
+    if [[ "$INSTALL_MYSQL" =~ ^[Yy]$ ]]; then
+      install_mysql_client
+      if has_cmd mysql; then
+        MYSQL_AVAILABLE=true
+        log "mysql 客户端安装成功: $(mysql --version)"
+      else
+        warn "mysql 客户端安装失败，可稍后手动安装（不影响启动，仅无法自动初始化数据库）"
+      fi
+    fi
+  else
+    warn "无 sudo 权限，跳过 mysql 客户端安装（不影响启动，仅无法自动初始化数据库）"
+  fi
+fi
+
+# ----------------------------------------------------------------------------
+# 安装 curl（用于健康检查，大多数系统自带）
+# ----------------------------------------------------------------------------
+if ! has_cmd curl; then
+  info "安装 curl ..."
+  case "$OS_TYPE" in
+    debian) [ "$HAS_SUDO" = true ] && sudo -E apt-get install -y curl 2>&1 | tail -2 ;;
+    rhel)   [ "$HAS_SUDO" = true ] && sudo -E yum install -y curl 2>&1 | tail -2 ;;
+    alpine) [ "$HAS_SUDO" = true ] && sudo apk add --no-cache curl 2>&1 | tail -2 ;;
+    macos)  has_cmd brew && brew install curl 2>&1 | tail -2 ;;
+  esac
+  hash -r 2>/dev/null || true
 fi
 
 # ============================================================================
