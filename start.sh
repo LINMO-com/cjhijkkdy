@@ -230,11 +230,27 @@ DB_PASS=""
 DB_HOST="127.0.0.1"
 DB_PORT="3306"
 DB_NAME="doc_share"
+DB_SOCKET=""
+
+# 查找可用的 socket 文件
+find_mysql_socket() {
+  for sock in \
+    "$PREFIX/var/run/mysqld.sock" \
+    "/tmp/mysql.sock" \
+    "/var/run/mysqld/mysqld.sock" \
+    "/var/lib/mysql/mysql.sock" \
+    "$PREFIX/tmp/mysql.sock"; do
+    if [ -S "$sock" ]; then
+      printf '%s' "$sock"
+      return 0
+    fi
+  done
+  return 1
+}
 
 # Termux 环境下 MariaDB 需要先初始化数据目录再启动
 if [ "$IS_TERMUX" = true ]; then
   info "Termux 环境：配置 MariaDB ..."
-  # Termux MariaDB 数据目录
   DB_DATA_DIR="$HOME/.mysql_data"
   mkdir -p "$DB_DATA_DIR"
 
@@ -258,16 +274,32 @@ if [ "$IS_TERMUX" = true ]; then
   # 启动 MariaDB 服务（如果未运行）
   if ! pgrep -x "mysqld\|mariadbd" >/dev/null 2>&1; then
     info "启动 MariaDB 服务..."
+    # 确保 socket 目录存在
+    mkdir -p "$PREFIX/var/run" 2>/dev/null || true
+    # 同时监听 socket 和 TCP（127.0.0.1:3306），方便后端 Sequelize 连接
     if has_cmd mysqld; then
-      nohup mysqld --datadir="$DB_DATA_DIR" --socket="$PREFIX/var/run/mysqld.sock" --pid-file="$PREFIX/var/run/mysqld.pid" >"$LOG_DIR/mysqld.log" 2>&1 &
+      nohup mysqld \
+        --datadir="$DB_DATA_DIR" \
+        --socket="$PREFIX/var/run/mysqld.sock" \
+        --pid-file="$PREFIX/var/run/mysqld.pid" \
+        --bind-address=127.0.0.1 \
+        --port=3306 \
+        --skip-networking=0 \
+        >"$LOG_DIR/mysqld.log" 2>&1 &
     elif has_cmd mariadbd; then
-      nohup mariadbd --datadir="$DB_DATA_DIR" >"$LOG_DIR/mysqld.log" 2>&1 &
+      nohup mariadbd \
+        --datadir="$DB_DATA_DIR" \
+        --socket="$PREFIX/var/run/mysqld.sock" \
+        --bind-address=127.0.0.1 \
+        --port=3306 \
+        --skip-networking=0 \
+        >"$LOG_DIR/mysqld.log" 2>&1 &
     fi
-    # 等待服务就绪（最多 20 秒）
+    # 等待服务就绪（最多 20 秒）—— 检测 socket 或 TCP 端口
     info "等待 MariaDB 服务就绪..."
     for i in $(seq 1 20); do
-      if mysqladmin ping -u"$DB_USER" --silent 2>/dev/null; then
-        log "MariaDB 服务已就绪"
+      if [ -S "$PREFIX/var/run/mysqld.sock" ]; then
+        log "MariaDB socket 已就绪"
         break
       fi
       sleep 1
@@ -278,12 +310,12 @@ if [ "$IS_TERMUX" = true ]; then
     log "MariaDB 服务已在运行"
   fi
 
-  # Termux MariaDB 默认 root 无密码，直接使用空密码
+  # Termux MariaDB 默认 root 无密码，通过 socket 连接
   DB_PASS=""
-  log "使用 root 空密码连接（Termux MariaDB 默认配置）"
+  DB_SOCKET="$PREFIX/var/run/mysqld.sock"
+  log "使用 root 空密码 + socket 连接（Termux MariaDB 默认配置）"
 
 elif [ "$OS_TYPE" = "macos" ]; then
-  # macOS Homebrew MariaDB
   if has_cmd brew; then
     if ! pgrep -x "mysqld\|mariadbd" >/dev/null 2>&1; then
       info "启动 MariaDB 服务..."
@@ -307,7 +339,6 @@ else
   else
     warn "数据库服务未运行，可能需要手动启动"
   fi
-  # Linux 下尝试常见密码（空密码、root、password）
   DB_PASS=""
 fi
 
@@ -316,10 +347,48 @@ fi
 # ============================================================================
 step "步骤 3/7 · 测试数据库连接并初始化"
 
-# 尝试用空密码连接，失败则尝试常见密码
+# 构造 mysql 连接参数（优先 socket，避免 TCP 卡住）
+MYSQL_CONN_ARGS="-u$DB_USER"
+if [ -n "$DB_SOCKET" ] && [ -S "$DB_SOCKET" ]; then
+  MYSQL_CONN_ARGS="$MYSQL_CONN_ARGS --socket=$DB_SOCKET"
+elif [ -n "$DB_SOCKET" ] && [ ! -S "$DB_SOCKET" ]; then
+  # socket 指定但不存在，回退到自动查找
+  AUTO_SOCK="$(find_mysql_socket || true)"
+  if [ -n "$AUTO_SOCK" ]; then
+    DB_SOCKET="$AUTO_SOCK"
+    MYSQL_CONN_ARGS="$MYSQL_CONN_ARGS --socket=$DB_SOCKET"
+    log "使用 socket: $DB_SOCKET"
+  fi
+else
+  # 没有指定 socket，尝试自动查找
+  AUTO_SOCK="$(find_mysql_socket || true)"
+  if [ -n "$AUTO_SOCK" ]; then
+    DB_SOCKET="$AUTO_SOCK"
+    MYSQL_CONN_ARGS="$MYSQL_CONN_ARGS --socket=$DB_SOCKET"
+    log "自动检测到 socket: $DB_SOCKET"
+  else
+    # 无 socket，用 TCP（加超时防止卡住）
+    MYSQL_CONN_ARGS="$MYSQL_CONN_ARGS -h$DB_HOST -P$DB_PORT --connect-timeout=3"
+    log "未找到 socket，使用 TCP 连接（超时 3 秒）"
+  fi
+fi
+
+# 测试连接的函数（带超时，防止卡住）
+test_db_connection() {
+  local pass="$1"
+  # 用 timeout 命令兜底（5 秒），防止 mysql 客户端卡住
+  if has_cmd timeout; then
+    timeout 5 mysql $MYSQL_CONN_ARGS -p"$pass" -e "SELECT 1" >/dev/null 2>&1
+  else
+    mysql $MYSQL_CONN_ARGS -p"$pass" --connect-timeout=3 -e "SELECT 1" >/dev/null 2>&1
+  fi
+}
+
+# 尝试用空密码及常见密码连接
 DB_CONNECT_OK=false
 for try_pass in "" "root" "password" "123456" "mysql"; do
-  if mysql -u"$DB_USER" -p"$try_pass" -h"$DB_HOST" -P"$DB_PORT" -e "SELECT 1" >/dev/null 2>&1; then
+  info "尝试连接数据库（密码: ${try_pass:-空}）..."
+  if test_db_connection "$try_pass"; then
     DB_PASS="$try_pass"
     DB_CONNECT_OK=true
     log "数据库连接成功（用户: $DB_USER, 密码: ${try_pass:-空}）"
@@ -328,23 +397,25 @@ for try_pass in "" "root" "password" "123456" "mysql"; do
 done
 
 if [ "$DB_CONNECT_OK" = false ]; then
-  warn "无法用常见密码连接数据库，尝试无密码 socket 连接..."
-  if mysql -u"$DB_USER" -e "SELECT 1" >/dev/null 2>&1; then
-    DB_PASS=""
-    DB_CONNECT_OK=true
-    log "通过 socket 连接成功"
-  fi
-fi
-
-if [ "$DB_CONNECT_OK" = false ]; then
-  err "无法连接数据库。请检查数据库服务是否运行，或手动配置 server/.env"
-  err "可手动执行: mysql -u root -e 'SELECT 1' 排查"
+  warn "常见密码均失败，打印 MariaDB 日志以便排查："
+  printf "${YELLOW}━━━━━━ mysqld.log ━━━━━━${NC}\n"
+  tail -20 "$LOG_DIR/mysqld.log" 2>/dev/null || echo "(无日志)"
+  printf "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+  err "无法连接数据库。可手动排查："
+  err "  1. 检查服务: pgrep -x mysqld"
+  err "  2. 手动连接: mysql -u root --socket=$PREFIX/var/run/mysqld.sock"
+  err "  3. 查看日志: cat $LOG_DIR/mysqld.log"
   exit 1
 fi
 
-# 初始化数据库（如果 doc_share 不存在或表不完整）
-info "检查并初始化数据库 schema..."
-if mysql -u"$DB_USER" -p"$DB_PASS" -h"$DB_HOST" -P"$DB_PORT" < "$SCRIPT_DIR/database/schema.sql" 2>&1 | grep -v "Using a password" | tail -5; then
+# 初始化数据库 schema
+info "初始化数据库 schema..."
+if has_cmd timeout; then
+  timeout 30 mysql $MYSQL_CONN_ARGS -p"$DB_PASS" < "$SCRIPT_DIR/database/schema.sql" 2>&1 | grep -v "Using a password" | tail -5
+else
+  mysql $MYSQL_CONN_ARGS -p"$DB_PASS" < "$SCRIPT_DIR/database/schema.sql" 2>&1 | grep -v "Using a password" | tail -5
+fi
+if [ $? -eq 0 ]; then
   log "数据库 schema 初始化完成（数据库: $DB_NAME，默认管理员: admin / admin123）"
 else
   warn "schema.sql 执行有警告，通常是因为库表已存在，可忽略"
