@@ -288,9 +288,40 @@ if ! has_cmd curl; then
 fi
 
 # ============================================================================
-# 步骤 2：数据库初始化（可选）
+# 步骤 2：数据库配置
 # ============================================================================
 step "步骤 2/6 · 数据库配置"
+
+# Termux 环境下需要先启动 MariaDB 服务
+DB_USER_INPUT=""
+DB_PASS_INPUT=""
+if [ "$IS_TERMUX" = true ]; then
+  info "Termux 环境：检查 MariaDB 服务..."
+  if ! pgrep -x "mysqld\|mariadbd" >/dev/null 2>&1; then
+    warn "MariaDB 服务未运行"
+    info "尝试启动 MariaDB 服务（后台运行）..."
+    # Termux 下启动 MariaDB
+    if has_cmd mysqld; then
+      nohup mysqld --skip-grant-tables >/dev/null 2>&1 &
+      sleep 3
+      if pgrep -x "mysqld" >/dev/null 2>&1; then
+        log "MariaDB 服务已启动"
+      else
+        warn "MariaDB 自动启动失败，请手动运行: nohup mysqld &"
+      fi
+    elif has_cmd mariadbd; then
+      nohup mariadbd >/dev/null 2>&1 &
+      sleep 3
+      if pgrep -x "mariadbd" >/dev/null 2>&1; then
+        log "MariaDB 服务已启动"
+      else
+        warn "MariaDB 自动启动失败，请手动运行: nohup mariadbd &"
+      fi
+    fi
+  else
+    log "MariaDB 服务已在运行"
+  fi
+fi
 
 read -rp "是否初始化数据库？这将执行 database/schema.sql [y/N]: " INIT_DB
 INIT_DB="${INIT_DB:-N}"
@@ -307,6 +338,8 @@ case "$INIT_DB" in
     printf "MySQL 密码（输入时明文显示，请注意遮挡）: "
     read -r MYSQL_PASS
     printf "\n"
+    DB_USER_INPUT="$MYSQL_USER"
+    DB_PASS_INPUT="$MYSQL_PASS"
     info "正在执行 database/schema.sql ..."
     if mysql -u"$MYSQL_USER" -p"$MYSQL_PASS" < "$SCRIPT_DIR/database/schema.sql" 2>/dev/null; then
       log "数据库初始化成功（数据库: doc_share，默认管理员: admin / admin123）"
@@ -317,6 +350,14 @@ case "$INIT_DB" in
     ;;
   *)
     warn "跳过数据库初始化。如需初始化请手动执行：mysql -u root -p < database/schema.sql"
+    # 即使跳过初始化，也询问数据库连接信息以便写入 .env
+    read -rp "请输入后端连接数据库的用户名 [root]: " MYSQL_USER
+    MYSQL_USER="${MYSQL_USER:-root}"
+    printf "请输入后端连接数据库的密码（明文显示）: "
+    read -r MYSQL_PASS
+    printf "\n"
+    DB_USER_INPUT="$MYSQL_USER"
+    DB_PASS_INPUT="$MYSQL_PASS"
     ;;
 esac
 
@@ -335,14 +376,27 @@ if [ ! -f ".env" ]; then
   JWT_SECRET="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   SHARE_SECRET="$(openssl rand -hex 64 2>/dev/null || head -c 64 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   # 用 awk 替换（比 sed 更安全，不担心特殊字符）
-  awk -v jwt="$JWT_SECRET" -v share="$SHARE_SECRET" '
+  # 同时写入数据库用户名和密码（关键修复：否则后端连不上数据库）
+  awk -v jwt="$JWT_SECRET" -v share="$SHARE_SECRET" -v dbuser="$DB_USER_INPUT" -v dbpass="$DB_PASS_INPUT" '
     /^JWT_SECRET=/    { print "JWT_SECRET=" jwt; next }
     /^SHARE_SECRET=/  { print "SHARE_SECRET=" share; next }
+    /^DB_USER=/       { print "DB_USER=" dbuser; next }
+    /^DB_PASSWORD=/   { print "DB_PASSWORD=" dbpass; next }
     { print }
   ' .env > .env.tmp && mv .env.tmp .env
-  log ".env 已生成（含随机密钥）"
+  log ".env 已生成（含随机密钥 + 数据库连接信息）"
 else
   log ".env 已存在，跳过生成"
+  # 即使 .env 已存在，也更新数据库密码（防止之前生成时遗漏）
+  if [ -n "$DB_PASS_INPUT" ]; then
+    info "更新 .env 中的数据库连接信息..."
+    awk -v dbuser="$DB_USER_INPUT" -v dbpass="$DB_PASS_INPUT" '
+      /^DB_USER=/     { print "DB_USER=" dbuser; next }
+      /^DB_PASSWORD=/ { print "DB_PASSWORD=" dbpass; next }
+      { print }
+    ' .env > .env.tmp && mv .env.tmp .env
+    log "数据库连接信息已更新"
+  fi
 fi
 
 # 安装依赖
@@ -410,7 +464,10 @@ printf "\n"
 if [ "$BACKEND_READY" = true ]; then
   log "后端服务就绪 (http://localhost:3000/api/health)"
 else
-  warn "后端服务未在 30 秒内就绪，请查看 .run/logs/server.log"
+  warn "后端服务未在 30 秒内就绪，自动打印日志最后 30 行以便排查："
+  printf "${YELLOW}━━━━━━ server.log ━━━━━━${NC}\n"
+  tail -30 "$LOG_DIR/server.log" 2>/dev/null || echo "(无日志)"
+  printf "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
 fi
 
 info "等待前端服务就绪..."
