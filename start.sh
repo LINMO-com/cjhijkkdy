@@ -303,7 +303,9 @@ case "$INIT_DB" in
     fi
     read -rp "MySQL 用户名 [root]: " MYSQL_USER
     MYSQL_USER="${MYSQL_USER:-root}"
-    read -s -p "MySQL 密码: " MYSQL_PASS
+    # 注意：不使用 read -s（静默模式），因为 Termux 某些终端下 -s 会导致无法输入
+    printf "MySQL 密码（输入时明文显示，请注意遮挡）: "
+    read -r MYSQL_PASS
     printf "\n"
     info "正在执行 database/schema.sql ..."
     if mysql -u"$MYSQL_USER" -p"$MYSQL_PASS" < "$SCRIPT_DIR/database/schema.sql" 2>/dev/null; then
