@@ -254,21 +254,49 @@ if [ "$IS_TERMUX" = true ]; then
   DB_DATA_DIR="$HOME/.mysql_data"
   mkdir -p "$DB_DATA_DIR"
 
-  # 如果数据目录未初始化，执行 mysql_install_db
+  # 如果数据目录未初始化，或初始化不完整（缺 mysql.db 等系统表），执行 mysql_install_db
+  # 关键：Termux 上 mysql_install_db 有时只创建部分表，需要检查 mysql.db 是否存在
+  NEED_INIT=false
   if [ ! -d "$DB_DATA_DIR/mysql" ]; then
-    info "首次使用，初始化 MariaDB 数据目录..."
+    NEED_INIT=true
+    info "数据目录不存在，需要初始化"
+  elif [ ! -f "$DB_DATA_DIR/mysql/db.MAD" ] && [ ! -f "$DB_DATA_DIR/mysql/db.MYD" ] && [ ! -f "$DB_DATA_DIR/mysql/db.ibd" ]; then
+    NEED_INIT=true
+    warn "数据目录存在但系统权限表缺失（mysql.db 不存在），需要重新初始化"
+  fi
+
+  if [ "$NEED_INIT" = true ]; then
+    # 如果是重新初始化，先删除旧的不完整数据目录
+    if [ -d "$DB_DATA_DIR" ]; then
+      info "清理旧的/损坏的数据目录..."
+      rm -rf "$DB_DATA_DIR"
+      mkdir -p "$DB_DATA_DIR"
+    fi
+    info "初始化 MariaDB 数据目录..."
+    # Termux 下 mysql_install_db 可能需要指定 auth_socket 插件
     if has_cmd mysql_install_db; then
-      mysql_install_db --datadir="$DB_DATA_DIR" --basedir="$PREFIX" 2>&1 | tail -5
+      mysql_install_db --datadir="$DB_DATA_DIR" --basedir="$PREFIX" --auth-root-authentication-method=normal 2>&1 | tail -8
       log "数据目录初始化完成"
     elif has_cmd mariadb-install-db; then
-      mariadb-install-db --datadir="$DB_DATA_DIR" --basedir="$PREFIX" 2>&1 | tail -5
+      mariadb-install-db --datadir="$DB_DATA_DIR" --basedir="$PREFIX" --auth-root-authentication-method=normal 2>&1 | tail -8
       log "数据目录初始化完成"
     else
       err "未找到 mysql_install_db，请手动运行: mysql_install_db"
       exit 1
     fi
+    # 验证关键系统表是否创建成功
+    if [ ! -f "$DB_DATA_DIR/mysql/db.MAD" ] && [ ! -f "$DB_DATA_DIR/mysql/db.MYD" ] && [ ! -f "$DB_DATA_DIR/mysql/db.ibd" ]; then
+      warn "初始化后 mysql.db 仍不存在，尝试不带 auth 参数重新初始化..."
+      rm -rf "$DB_DATA_DIR"
+      mkdir -p "$DB_DATA_DIR"
+      if has_cmd mysql_install_db; then
+        mysql_install_db --datadir="$DB_DATA_DIR" --basedir="$PREFIX" 2>&1 | tail -8
+      elif has_cmd mariadb-install-db; then
+        mariadb-install-db --datadir="$DB_DATA_DIR" --basedir="$PREFIX" 2>&1 | tail -8
+      fi
+    fi
   else
-    log "数据目录已存在，跳过初始化"
+    log "数据目录已存在且系统表完整，跳过初始化"
   fi
 
   # 启动 MariaDB 服务（如果未运行）
