@@ -33,3 +33,6 @@ Thumbs.db
 
 # Vite 缓存
 .vite/
+
+# 一键启动脚本的运行时文件（PID、日志）
+.run/
